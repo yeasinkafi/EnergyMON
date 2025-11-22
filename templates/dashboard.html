@@ -1,0 +1,475 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EnergyMon Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gap: 14px; --card: #fff; --brd: #e5e7eb; --muted:#6b7280; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background:#f6f7fb; color:#0f172a;
+    }
+    .wrap { padding: 16px; max-width: 1280px; margin: 0 auto; }
+
+    .header { display:flex; align-items:center; justify-content:space-between; margin-bottom: var(--gap); }
+    .title { display:flex; align-items:center; gap:10px; font-weight:800; font-size: 22px; }
+    .statusbar { display:flex; align-items:center; gap:10px; color: var(--muted); }
+    .pill {
+      display:inline-flex; align-items:center; gap:6px;
+      padding: 4px 10px; border-radius:999px;
+      font-weight:600; font-size:.85rem;
+      background:#e2fbe2; color:#065f46;
+    }
+    .pill.gray { background:#eef2f7; color:#475569; }
+    .pill.red { background:#fee2e2; color:#991b1b; }
+    .dot { width:8px; height:8px; border-radius:50%; background: currentColor; display:inline-block; }
+
+    .layout { display:grid; grid-template-columns: 1fr 360px; gap: var(--gap); }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card); border:1px solid var(--brd); border-radius: 12px; padding: 14px; }
+    .section-head { font-weight:700; color:#111827; margin: 2px 0 12px; }
+    .muted { color: var(--muted); }
+
+    .device-head { display:flex; justify-content:space-between; align-items:center; }
+
+    .kpis { display:grid; grid-template-columns: repeat(3, minmax(160px,1fr)); gap: var(--gap); }
+    .kpi { display:flex; flex-direction:column; gap:6px; border-radius: 12px; padding: 16px; color:#fff; }
+    .kpi.blue   { background: linear-gradient(135deg, #2f80ed, #56ccf2); }
+    .kpi.green  { background: linear-gradient(135deg, #10b981, #34d399); }
+    .kpi.orange { background: linear-gradient(135deg, #f59e0b, #fbbf24); }
+    .kpi .label { opacity:.9; font-weight:600; }
+    .kpi .value { font-size: 28px; line-height:1; font-weight:800; }
+
+    .control .bigbtn {
+      width: 100%; padding: 16px; border-radius: 10px; font-weight:800; font-size: 18px;
+      color:#fff; border:1px solid transparent; cursor:pointer;
+      display:flex; justify-content:center; align-items:center; gap:10px;
+    }
+    .bigbtn.on  { background:#16a34a; border-color:#15803d; }
+    .bigbtn.off { background:#dc2626; border-color:#b91c1c; }
+
+    .summarylist { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+    .summarylist li {
+      display:flex; justify-content:space-between;
+      border:1px dashed var(--brd); border-radius:8px; padding:8px 10px;
+    }
+
+    .chart-card { padding: 12px; }
+    .chart-head {
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px; margin-bottom: 6px;
+    }
+    .tabs { display:flex; gap:8px; }
+    .tab {
+      padding:6px 10px; border:1px solid var(--brd); border-radius:8px;
+      background:#fff; cursor:pointer;
+    }
+    .tab.active { background:#e6f0ff; border-color:#9bbcff; }
+
+    canvas { width: 100%; background:#fff; border:1px solid #e2e8f0; border-radius:10px; }
+    #secondsChart { height: 260px; }
+    #realtimeChart { height: 260px; }
+    #historyChart { height: 260px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title">⚡ EnergyMon Dashboard</div>
+      <div class="statusbar">
+        <span id="conn" class="pill gray"><span class="dot"></span> Connected</span>
+        <span class="muted">|</span>
+        <span class="muted">Last Update: <strong id="lastUpdate">--:--:--</strong></span>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- MAIN COLUMN -->
+      <div>
+
+        <div class="card">
+          <div class="device-head">
+            <div>
+              <div class="section-head">Tuya Smart Plug</div>
+              <div class="muted" style="font-size:0.92rem;">Device ID: {{ device_id }}</div>
+            </div>
+            <div><span id="headerState" class="pill gray"><span class="dot"></span> OFF</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="section-head">Real-time Monitoring</div>
+          <div class="kpis">
+            <div class="kpi blue">
+              <div class="label">Power</div>
+              <div class="value" id="power">-- W</div>
+            </div>
+            <div class="kpi green">
+              <div class="label">Voltage</div>
+              <div class="value" id="voltage">-- V</div>
+            </div>
+            <div class="kpi orange">
+              <div class="label">Current</div>
+              <div class="value" id="current">-- A</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1) Seconds -->
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="section-head">Live Monitoring (Seconds)</div>
+          <div class="chart-card"><canvas id="secondsChart"></canvas></div>
+        </div>
+
+        <!-- 2) Aggregated -->
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="chart-head">
+            <div class="section-head" style="margin:0;">Aggregated Monitoring</div>
+            <div class="tabs">
+              <button class="tab active" data-g="minute">Minute</button>
+              <button class="tab" data-g="hour">Hour</button>
+              <button class="tab" data-g="day">Day</button>
+              <button class="tab" data-g="week">Week</button>
+            </div>
+          </div>
+          <div class="chart-card"><canvas id="realtimeChart"></canvas></div>
+        </div>
+
+        <!-- 3) Historical -->
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="chart-head">
+            <div class="section-head" style="margin:0;">Historical Energy Consumption</div>
+            <div class="row" style="gap:8px;">
+              <span class="muted">Select Date:</span>
+              <input type="date" id="history-date"/>
+              <button id="load-history" class="tab">View History</button>
+            </div>
+          </div>
+          <div class="chart-card"><canvas id="historyChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="control">
+        <div class="card">
+          <div class="section-head">Device Control</div>
+          <button id="switch-btn" class="bigbtn off">⏻ Turned OFF</button>
+          <div style="margin-top:10px;">
+            <span id="switch-state" class="pill gray"><span class="dot"></span> Device Status: --</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="section-head">Summary</div>
+          <ul class="summarylist">
+            <li><span class="muted">Daily Runtime</span> <strong id="runtime">--</strong></li>
+            <li><span class="muted">Today's Energy</span> <strong id="energy">-- kWh</strong></li>
+          </ul>
+        </div>
+
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="section-head">System Status</div>
+          <ul class="summarylist">
+            <li><span class="muted">API Connection</span> <span id="apiConn" class="pill gray"><span class="dot"></span> Connected</span></li>
+            <li><span class="muted">Database</span> <span class="pill"><span class="dot"></span> Online</span></li>
+            <li><span class="muted">Data Logging</span> <span class="pill"><span class="dot"></span> Active</span></li>
+            <li><span class="muted">Server Uptime</span> <strong id="uptime">--</strong></li>
+          </ul>
+        </div>
+
+        <div class="card" style="margin-top: var(--gap);">
+          <div class="section-head">Export Data</div>
+          <button id="download-btn"
+                  class="bigbtn on"
+                  style="background:#2563eb; border-color:#1d4ed8;">
+            ⬇️ Download CSV
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Backend base URL (local vs GitHub Pages) ----
+    const API_BASE =
+      (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+        ? 'http://127.0.0.1:5000'  // local Flask
+        : 'https://YOUR-RENDER-APP-URL.onrender.com'; // TODO: change to your real Render URL
+
+    const api = (path) => `${API_BASE}${path}`;
+
+    const $ = s => document.querySelector(s);
+    const $$ = s => Array.from(document.querySelectorAll(s));
+    const fmtUptime = (sec=0)=>{
+      sec=Math.floor(sec);
+      const d=Math.floor(sec/86400),
+            h=Math.floor(sec%86400/3600),
+            m=Math.floor(sec%3600/60),
+            s2=sec%60;
+      return `${d}d ${h}h ${m}m ${s2}s`;
+    };
+    const pad = n => String(n).padStart(2,'0');
+    const fmtTime = ts =>{
+      const d=new Date(ts);
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    let currentSwitch=false, currentG='minute';
+    let secChart, rtChart, histChart;
+
+    async function fetchJSON(url, opts) {
+      const r = await fetch(url, Object.assign({ cache: 'no-store' }, opts||{}));
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    function renderConn(connected) {
+      const cls = connected ? 'pill' : 'pill red';
+      $('#conn').className = cls;
+      $('#apiConn').className = cls;
+    }
+
+    function renderSwitch() {
+      $('#switch-btn').classList.toggle('on',  currentSwitch);
+      $('#switch-btn').classList.toggle('off', !currentSwitch);
+      $('#switch-btn').textContent = currentSwitch ? '⏻ Turned On' : '⏻ Turned OFF';
+      $('#switch-state').innerHTML = `<span class="dot"></span> state: ${currentSwitch ? 'ON' : 'OFF'}`;
+      $('#headerState').innerHTML = `<span class="dot"></span> ${currentSwitch ? 'ON' : 'OFF'}`;
+      $('#headerState').className = currentSwitch ? 'pill' : 'pill gray';
+    }
+
+    // Seconds chart (1s feed)
+    secChart = new Chart($('#secondsChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'Power (W)', data: [], tension: 0.2 }]},
+      options: {
+        responsive:true,
+        animation:false,
+        scales:{ y:{ title:{display:true, text:'Watts'} } }
+      }
+    });
+    function pushSecond(ts, power) {
+      secChart.data.labels.push(fmtTime(ts));
+      secChart.data.datasets[0].data.push(Number(power));
+      if (secChart.data.labels.length > 300) {
+        secChart.data.labels.shift();
+        secChart.data.datasets[0].data.shift();
+      }
+      secChart.update();
+    }
+
+    // Aggregated chart creators (with precise energy formatting)
+    function buildOrUpdateAggregated(labels, power, energy) {
+      const ctx = $('#realtimeChart').getContext('2d');
+      const options = {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const val = Number(ctx.parsed.y);
+                if (ctx.dataset.label && ctx.dataset.label.toLowerCase().includes('energy')) {
+                  return `${ctx.dataset.label}: ${val.toFixed(6)}`;
+                }
+                return `${ctx.dataset.label}: ${val.toFixed(1)}`;
+              }
+            }
+          },
+          legend: { labels: { usePointStyle: true } }
+        },
+        scales: {
+          y: {
+            title: { display: true, text: 'Watts' },
+            ticks: { callback: v => Number(v).toFixed(0) }
+          },
+          y1: {
+            position: 'right',
+            title: { display: true, text: 'kWh' },
+            grid: { drawOnChartArea: false },
+            ticks: { callback: v => Number(v).toFixed(6) }
+          }
+        }
+      };
+
+      if (!rtChart) {
+        rtChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              { label: 'Avg Power (W)', data: power, tension: 0.25 },
+              { label: 'Energy (kWh)', data: energy, tension: 0.25, yAxisID: 'y1' }
+            ]
+          },
+          options
+        });
+      } else {
+        rtChart.data.labels = labels;
+        rtChart.data.datasets[0].data = power;
+        rtChart.data.datasets[1].data = energy;
+        rtChart.options = options;
+        rtChart.update();
+      }
+    }
+
+    function updateHistory(labels, series) {
+      const ctx = $('#historyChart').getContext('2d');
+      if (!histChart) {
+        histChart = new Chart(ctx, {
+          type:'line',
+          data:{
+            labels,
+            datasets:[{ label:'Power (W) - 10 min bins', data:series, tension:0.25 }]
+          },
+          options:{
+            responsive:true,
+            scales:{ y:{ title:{ display:true, text:'Watts' } } }
+          }
+        });
+      } else {
+        histChart.data.labels = labels;
+        histChart.data.datasets[0].data = series;
+        histChart.update();
+      }
+    }
+
+    async function refreshLive() {
+      try {
+        const live = await fetchJSON(api('/api/live'));
+        if (live.error) throw new Error(live.error);
+        $('#power').textContent   = `${(live.power ?? 0).toFixed(1)} W`;
+        $('#voltage').textContent = `${(live.voltage ?? 0).toFixed(1)} V`;
+        $('#current').textContent = `${(live.current ?? 0).toFixed(3)} A`;
+        currentSwitch = !!live.switch;
+        renderSwitch();
+        renderConn(true);
+        const t = (live.server_time||Math.floor(Date.now()/1000))*1000;
+        const d = new Date(t);
+        const hh = String(d.getHours()).padStart(2,'0');
+        const mm = String(d.getMinutes()).padStart(2,'0');
+        const ss = String(d.getSeconds()).padStart(2,'0');
+        $('#lastUpdate').textContent = `${hh}:${mm}:${ss}`;
+        pushSecond(t, live.power ?? 0);
+      } catch {
+        renderConn(false);
+      }
+    }
+
+    async function refreshSummary() {
+      try {
+        const [sum, sys] = await Promise.all([
+          fetchJSON(api('/api/summary')),
+          fetchJSON(api('/api/system'))
+        ]);
+        $('#energy').textContent = `${(sum.today_energy_kwh ?? 0).toFixed(3)} kWh`;
+        const rs = sum.daily_runtime_seconds || 0;
+        $('#runtime').textContent = `${Math.floor(rs/60)}m`;
+        $('#uptime').textContent = fmtUptime(sys.uptime_seconds || 0);
+      } catch {}
+    }
+
+    async function refreshAggregated() {
+      try {
+        const data = await fetchJSON(api(`/api/series?granularity=${currentG}`));
+        let labels;
+
+        if (currentG === 'day') {
+          // 24 hourly labels HH:MM
+          labels = data.map(p => {
+            const d = new Date(Number(p.ts));
+            return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          });
+        } else if (currentG === 'week') {
+          // 7 dates YYYY/MM/DD
+          labels = data.map(p => {
+            const d = new Date(Number(p.ts));
+            const y = d.getFullYear();
+            const m = String(d.getMonth()+1).padStart(2,'0');
+            const day = String(d.getDate()).padStart(2,'0');
+            return `${y}/${m}/${day}`;
+          });
+        } else {
+          // minute/hour → full datetime
+          labels = data.map(p => new Date(Number(p.ts)).toLocaleString());
+        }
+
+        const power  = data.map(p => Number(p.avg_power));
+        const energy = data.map(p => Number(p.energy_kwh));  // ensure numeric
+        buildOrUpdateAggregated(labels, power, energy);
+      } catch {}
+    }
+
+    async function refreshHistory() {
+      const d = $('#history-date').value;
+      if (!d) return;
+      try {
+        const data = await fetchJSON(api(`/api/history?date=${encodeURIComponent(d)}`));
+        updateHistory(
+          data.map(p=>new Date(p.x).toLocaleTimeString()),
+          data.map(p=>Number(p.y||0))
+        );
+      } catch(e) {
+        alert('History failed:\n'+e.message);
+      }
+    }
+
+    // Toggle
+    $('#switch-btn').addEventListener('click', async () => {
+      const target = !currentSwitch;
+      currentSwitch = target;
+      renderSwitch();
+      try {
+        await fetchJSON(api('/switch'), {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ on: target })
+        });
+        setTimeout(async () => {
+          try {
+            const live = await fetchJSON(api('/api/live'));
+            currentSwitch = !!live.switch;
+            renderSwitch();
+          } catch {}
+        }, 300);
+      } catch (e) {
+        currentSwitch = !target;
+        renderSwitch();
+        alert('Switch failed:\n' + e.message);
+      }
+    });
+
+    // Tabs
+    $$('.tab').forEach(t => t.addEventListener('click', () => {
+      if (!t.dataset.g) return; // ignore "View History" button
+      $$('.tab').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      currentG = t.dataset.g;
+      refreshAggregated();
+    }));
+
+    // History init
+    const todayISO = new Date().toISOString().slice(0,10);
+    $('#history-date').value = todayISO;
+    $('#load-history').addEventListener('click', refreshHistory);
+
+    // Download CSV
+    $('#download-btn').addEventListener('click', () => {
+      window.location.href = api('/download-csv');
+    });
+
+    // Initial + intervals
+    refreshLive();
+    refreshSummary();
+    refreshAggregated();
+    refreshHistory();
+    setInterval(refreshLive, 1000);
+    setInterval(refreshSummary, 10000);
+    setInterval(refreshAggregated, 10000);
+  </script>
+</body>
+</html>
